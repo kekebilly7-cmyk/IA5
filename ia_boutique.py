@@ -12,8 +12,8 @@ openai.api_key = os.getenv("OPENAI_API_KEY")
 # 🔑 Clés WooCommerce
 wcapi = API(
     url="https://grahamshoping.fr",
-    consumer_key="ck_607ce80b9a37a12ab09aa96e1ef5db52a65d57b4",
-    consumer_secret="cs_f3578af8508cc5b327ecba62542a692635feda80",
+    consumer_key="",
+    consumer_secret="",
     version="wc/v3",
     verify_ssl=False,
     query_string_auth=True
