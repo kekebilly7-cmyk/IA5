@@ -1,0 +1,12 @@
+<<<<<<< HEAD
+flask
+flask-cors
+woocommerce
+openai
+=======
+flask
+flask-cors
+woocommerce
+openai
+>>>>>>> d5ca23350dc7ab62640d618b94b08e9dd97bd7cd
+python-dotenv
