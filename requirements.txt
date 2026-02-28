@@ -3,3 +3,4 @@ flask-cors
 woocommerce
 openai
 python-dotenv
+gunicorn
