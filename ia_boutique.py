@@ -1,13 +1,13 @@
 from woocommerce import API
-import openai
+from openai import OpenAI  # 🔹 Changement ici
 import os
 from dotenv import load_dotenv
 
 # Charger les variables d'environnement
 load_dotenv()
 
-# Clé OpenAI
-openai.api_key = os.getenv("OPENAI_API_KEY")
+# 🔹 Nouvelle façon d'initialiser le client OpenAI
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Configuration WooCommerce
 wcapi = API(
@@ -22,8 +22,9 @@ wcapi = API(
 def repondre_client(question):
     """Appelle OpenAI pour répondre à la question du client"""
     try:
-        response = openai.ChatCompletion.create(
-            model="gpt-4o-mini",  # Modèle corrigé ici
+        # 🔹 Nouvelle syntaxe pour l'appel à l'IA
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
             messages=[
                 {
                     "role": "system", 
@@ -32,7 +33,8 @@ def repondre_client(question):
                 {"role": "user", "content": question}
             ]
         )
-        return response.choices[0].message['content']
+        # 🔹 Accès aux données légèrement différent (objet au lieu de dictionnaire)
+        return response.choices[0].message.content
     except Exception as e:
         return f"Erreur OpenAI : {str(e)}"
 
@@ -42,7 +44,6 @@ def tester_derniere_commandes():
         response = wcapi.get("orders", params={"per_page": 5})
         derniere_commandes = response.json()
         
-        # Si WooCommerce renvoie une erreur (mauvaises clés API par exemple)
         if isinstance(derniere_commandes, dict) and "code" in derniere_commandes:
             print(f"Erreur WooCommerce API : {derniere_commandes['message']}")
             return
