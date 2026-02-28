@@ -9,11 +9,11 @@ load_dotenv()
 # 🔑 Clé OpenAI depuis .env
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# 🔑 Clés WooCommerce
+# 🔑 Clés WooCommerce depuis .env
 wcapi = API(
-    url="https://grahamshoping.fr",
-    consumer_key="ck_607ce80b9a37a12ab09aa96e1ef5db52a65d57b4",
-    consumer_secret="cs_f3578af8508cc5b327ecba62542a692635feda80",
+    url=os.getenv("WC_URL", "https://grahamshoping.fr"),
+    consumer_key=os.getenv("WC_CONSUMER_KEY"),
+    consumer_secret=os.getenv("WC_CONSUMER_SECRET"),
     version="wc/v3",
     verify_ssl=False,
     query_string_auth=True
@@ -24,7 +24,10 @@ def repondre_client(question):
     response = openai.ChatCompletion.create(
         model="gpt-5-mini",
         messages=[
-            {"role": "system", "content": "Tu es un assistant qui répond aux questions sur les commandes et les descriptions d'articles d'une boutique WooCommerce."},
+            {
+                "role": "system",
+                "content": "Tu es un assistant qui répond aux questions sur les commandes et les descriptions d'articles d'une boutique WooCommerce."
+            },
             {"role": "user", "content": question}
         ]
     )
