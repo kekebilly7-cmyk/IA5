@@ -1,4 +1,19 @@
-node_modules/
-AppData/
+# Sécurité (Le plus important !)
+.env
+
+# Python (Fichiers temporaires)
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Environnement virtuel (Si tu en utilises un)
+venv/
+env/
+
+# Système et Editeurs
 .vscode/
-.git/
+.DS_Store
+Thumbs.db
+
+# Anciens dossiers de ton projet
+IA-BOUTIQUE-mirror.git/.
