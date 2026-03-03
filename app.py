@@ -1,4 +1,4 @@
-# Mise à jour du 03 mars
+# Mise à jour du 03 mars - Version Optimisée
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from woocommerce import API
@@ -17,7 +17,6 @@ CORS(app)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Configuration Base de Données Hostinger
-# NOTE : Utilisation du mot de passe kekebilly trouvé dans ton wp-config en ligne
 db_config = {
     "host": "sql1270.main-hosting.eu",
     "user": "u637875669_xOcRm",
@@ -58,25 +57,28 @@ def db_query(query, params=(), fetchone=False):
         return None
 
 def get_catalog():
-    """Récupère les 5 derniers produits en stock"""
+    """Récupère les derniers produits avec prix formatés"""
     query = """
-    SELECT p.post_title, m1.meta_value as prix, m2.meta_value as stock
+    SELECT p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix, m2.meta_value as stock
     FROM wp_posts p
     INNER JOIN wp_postmeta m1 ON p.ID = m1.post_id AND m1.meta_key = '_price'
     LEFT JOIN wp_postmeta m2 ON p.ID = m2.post_id AND m2.meta_key = '_stock'
     WHERE p.post_type = 'product' AND p.post_status = 'publish'
-    ORDER BY p.post_date DESC LIMIT 5
+    ORDER BY p.post_date DESC LIMIT 10
     """
     items = db_query(query)
     if items:
         liste = "\n".join([f"- {i['post_title']}: {i['prix']}€ (Stock: {i['stock'] or 'Dispo'})" for i in items])
-        return f"\nVoici nos articles récents :\n{liste}"
+        return f"\nVoici nos articles disponibles :\n{liste}"
     return "\nLe catalogue est actuellement vide."
 
 def get_product_info(product_name):
-    """Cherche prix et stock d'un produit spécifique"""
+    """Cherche un produit avec une recherche plus large"""
+    if not product_name or len(product_name) < 2:
+        return ""
+        
     query = """
-    SELECT p.post_title, m1.meta_value as prix, m2.meta_value as stock
+    SELECT p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix, m2.meta_value as stock
     FROM wp_posts p
     INNER JOIN wp_postmeta m1 ON p.ID = m1.post_id AND m1.meta_key = '_price'
     LEFT JOIN wp_postmeta m2 ON p.ID = m2.post_id AND m2.meta_key = '_stock'
@@ -87,7 +89,7 @@ def get_product_info(product_name):
     if res:
         stock = res['stock'] if res['stock'] not in [None, ''] else "Disponible"
         return f"\n[INFO RÉELLE] Produit: {res['post_title']} | Prix: {res['prix']}€ | Stock: {stock}"
-    return "\n[INFO] Je n'ai pas trouvé ce produit spécifique, mais je peux lister le catalogue."
+    return ""
 
 def get_order_status(order_id):
     try:
@@ -106,19 +108,29 @@ def ask_ai(question):
     low_q = question.lower()
     context_dynamique = ""
 
-    # Détection du besoin d'infos réelles
-    if any(word in low_q for word in ["catalogue", "boutique", "vends", "articles", "quoi"]):
+    # 1. Analyse pour le catalogue
+    if any(word in low_q for word in ["catalogue", "boutique", "vends", "articles", "quoi", "disponible"]):
         context_dynamique = get_catalog()
-    elif any(word in low_q for word in ["prix", "stock", "dispo", "combien"]):
-        # On essaie d'extraire le dernier mot comme nom de produit
-        produit_potentiel = question.split()[-1].replace('?', '')
-        context_dynamique = get_product_info(produit_potentiel)
+    
+    # 2. Analyse pour un produit spécifique (Recherche sur les mots importants)
+    elif any(word in low_q for word in ["prix", "stock", "combien", "coûte"]):
+        # Extraction du nom : on enlève les mots inutiles pour garder le nom du produit
+        mots_a_enlever = ["le", "la", "du", "de", "prix", "stock", "combien", "coûte", "est", "quel", "quelle"]
+        mots = [w for w in low_q.replace('?', '').split() if w not in mots_a_enlever]
+        nom_produit = " ".join(mots)
+        
+        info_produit = get_product_info(nom_produit)
+        if info_produit:
+            context_dynamique = info_produit
+        else:
+            # Si pas trouvé, on donne le catalogue pour aider l'IA
+            context_dynamique = get_catalog()
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": f"Tu es l'assistant de Graham Shopping. {shop_info} {context_dynamique}\nRéponds toujours poliment en utilisant ces données réelles."},
+                {"role": "system", "content": f"Tu es l'assistant de Graham Shopping. {shop_info} {context_dynamique}\nRéponds poliment. Si les prix sont dans le contexte, utilise-les."},
                 {"role": "user", "content": question}
             ]
         )
@@ -132,14 +144,12 @@ def chat():
     if not data: return jsonify({"reponse": "Erreur"}), 400
     question = data.get("question") or data.get("message") or ""
     
-    # Priorité : Statut de commande (détection de chiffres)
     if "commande" in question.lower():
         nums = re.findall(r'\d+', question)
         if nums: return jsonify({"reponse": get_order_status(nums[0])})
 
     return jsonify({"reponse": ask_ai(question)})
 
-# Ligne nécessaire pour Render / Gunicorn
 if __name__ == "__main__":
 
     app.run(host="0.0.0.0", port=5000)
