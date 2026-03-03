@@ -21,7 +21,7 @@ client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 db_config = {
     "host": "sql1270.main-hosting.eu",
     "user": "u637875669_xOcRm",
-    "password": "kekebilly1234K@#",
+    "password": "billykeke1234K@#",
     "database": "u637875669_mAofs",
     "raise_on_warnings": True
 }
@@ -141,4 +141,5 @@ def chat():
 
 # Ligne nécessaire pour Render / Gunicorn
 if __name__ == "__main__":
+
     app.run(host="0.0.0.0", port=5000)
