@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+# Mise à jour du 03 marsfrom flask import Flask, request, jsonify
 from flask_cors import CORS
 from woocommerce import API
 from openai import OpenAI
