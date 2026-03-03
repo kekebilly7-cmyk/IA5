@@ -1,4 +1,5 @@
-# Mise à jour du 03 marsfrom flask import Flask, request, jsonify
+# Mise à jour du 03 mars
+from flask import Flask, request, jsonify
 from flask_cors import CORS
 from woocommerce import API
 from openai import OpenAI
@@ -16,11 +17,13 @@ CORS(app)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
 # Configuration Base de Données Hostinger
+# NOTE : Utilisation du mot de passe kekebilly trouvé dans ton wp-config en ligne
 db_config = {
     "host": "sql1270.main-hosting.eu",
     "user": "u637875669_xOcRm",
-    "password": "billykeke1234K@#",
-    "database": "u637875669_mAofs"
+    "password": "kekebilly1234K@#",
+    "database": "u637875669_mAofs",
+    "raise_on_warnings": True
 }
 
 shop_info = """
@@ -136,5 +139,6 @@ def chat():
 
     return jsonify({"reponse": ask_ai(question)})
 
+# Ligne nécessaire pour Render / Gunicorn
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
