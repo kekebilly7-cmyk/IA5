@@ -4,3 +4,4 @@ mysql-connector-python
 woocommerce
 openai
 python-dotenv
+gunicorn
