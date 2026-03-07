@@ -5,6 +5,9 @@ from openai import OpenAI
 import mysql.connector
 import re
 import os
+import threading
+import time
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,10 +18,13 @@ CORS(app)
 # Configuration OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# Mémoire conversationnelle
+# Mémoire conversationnelle (clé = user_id_email ou user_id)
 conversation_memory = {}
 
-# Stockage ID client par utilisateur
+# Mémoire email par utilisateur
+user_email_memory = {}
+
+# Stockage ID client par utilisateur+email
 customer_memory = {}
 
 # Configuration Base de Données Hostinger
@@ -47,59 +53,55 @@ wcapi = API(
     verify_ssl=True
 )
 
-# --- FONCTIONS CLIENT ---
+# ---------------- NETTOYAGE DES CONVERSATIONS ----------------
+def cleanup_conversations():
+    while True:
+        now = datetime.now()
+        to_delete = []
 
+        for key, data in conversation_memory.items():
+            last_active = data.get("last_active", now)
+            if now - last_active > timedelta(minutes=30):
+                to_delete.append(key)
+
+        for key in to_delete:
+            del conversation_memory[key]
+            if key in customer_memory:
+                del customer_memory[key]
+
+        time.sleep(600)  # Vérifie toutes les 10 min
+
+threading.Thread(target=cleanup_conversations, daemon=True).start()
+
+# ---------------- FONCTIONS CLIENT ----------------
 def get_customer_by_email(email):
-
     try:
         response = wcapi.get("customers", params={"email": email})
         data = response.json()
-
         if response.status_code == 200 and len(data) > 0:
             return data[0]["id"]
-
         return None
-
     except Exception as e:
         print(f"Erreur récupération client: {e}")
         return None
 
+def check_customer_logged(user_email_key):
+    return user_email_key in customer_memory
 
-# vérifie si le client est identifié
-def check_customer_logged(user_id):
-
-    if user_id in customer_memory:
-        return True
-
-    return False
-
-
-# --- FONCTIONS DB ---
-
+# ---------------- FONCTIONS DB ----------------
 def db_query(query, params=(), fetchone=False):
-
     try:
-
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
-
         cursor.execute(query, params)
-
         result = cursor.fetchone() if fetchone else cursor.fetchall()
-
         conn.close()
-
         return result
-
     except Exception as e:
-
         print(f"Erreur DB: {e}")
-
         return None
 
-
 def get_catalog():
-
     query = """
     SELECT p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix, m2.meta_value as stock
     FROM wp_posts p
@@ -108,26 +110,18 @@ def get_catalog():
     WHERE p.post_type = 'product' AND p.post_status = 'publish'
     ORDER BY p.post_date DESC LIMIT 10
     """
-
     items = db_query(query)
-
     if items:
-
         liste = "\n".join([
             f"- {i['post_title'].upper()}: {i['prix']}€ (Stock: {i['stock'] or 'Dispo'})"
             for i in items
         ])
-
         return f"\nVoici nos articles disponibles :\n{liste}"
-
     return "\nLe catalogue est actuellement vide."
 
-
 def get_product_info(product_name):
-
     if not product_name or len(product_name) < 2:
         return ""
-
     query = """
     SELECT p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix, m2.meta_value as stock
     FROM wp_posts p
@@ -136,28 +130,17 @@ def get_product_info(product_name):
     WHERE p.post_type = 'product' AND p.post_status = 'publish'
     AND p.post_title LIKE %s LIMIT 1
     """
-
     res = db_query(query, ("%" + product_name.strip() + "%",), fetchone=True)
-
     if res:
-
         stock = res['stock'] if res['stock'] not in [None, ''] else "Disponible"
-
         return f"Produit réel : {res['post_title'].upper()} | Prix : {res['prix']}€ | Stock : {stock}"
-
     return ""
 
-
 def get_order_status(order_id):
-
     try:
-
         response = wcapi.get(f"orders/{order_id}")
-
         order = response.json()
-
         if response.status_code == 200 and "status" in order:
-
             status_map = {
                 'pending': 'en attente',
                 'processing': 'en cours de traitement',
@@ -167,70 +150,50 @@ def get_order_status(order_id):
                 'failed': 'échouée',
                 'refunded': 'remboursée'
             }
-
             return f"Votre commande #{order_id} est {status_map.get(order['status'], order['status'])}."
-
         return "Commande introuvable."
-
     except:
-
         return "Erreur lors de la vérification de la commande."
 
-
-# --- LOGIQUE IA ---
-
+# ---------------- LOGIQUE IA ----------------
 def ask_ai(user_id, question):
-
-    history = conversation_memory.get(user_id, [])
-
-    # DETECTION EMAIL
+    # Détection email
     email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', question)
-
     if email_match:
-
         email = email_match.group(0)
+        user_email_memory[user_id] = email  # mémorisation
+    email = user_email_memory.get(user_id)
 
+    # clé utilisateur isolée par email
+    user_email_key = f"{user_id}_{email}" if email else user_id
+
+    history = conversation_memory.get(user_email_key, {}).get("history", [])
+
+    # Si email détecté
+    if email_match:
         customer_id = get_customer_by_email(email)
-
         if customer_id:
-
-            customer_memory[user_id] = customer_id
-
+            customer_memory[user_email_key] = customer_id
             return "Compte reconnu ✅. Vous pouvez maintenant passer commande."
-
         else:
-
             return "Je ne trouve aucun compte avec cet email. Merci de créer un compte sur notre site avant de passer commande."
 
-
-    # BLOQUER COMMANDE SI CLIENT NON IDENTIFIÉ
-    if "commande" in question.lower() or "acheter" in question.lower():
-
-        if not check_customer_logged(user_id):
-
+    # Bloquer commande si pas identifié
+    if any(word in question.lower() for word in ["commande","acheter","je veux"]):
+        if not check_customer_logged(user_email_key):
             return "Pour passer commande, veuillez d'abord indiquer l'email de votre compte client."
 
-
+    # contexte dynamique IA
     low_q = question.lower()
-
     context_dynamique = ""
-
     if any(word in low_q for word in ["catalogue", "boutique", "vends", "articles", "quoi", "disponible"]):
-
         context_dynamique = get_catalog()
-
     elif any(word in low_q for word in ["prix", "stock", "combien", "coûte"]):
-
         mots_a_enlever = ["le", "la", "du", "de", "prix", "stock", "combien", "coûte", "est", "quel", "quelle"]
-
         mots = [w for w in low_q.replace('?', '').split() if w not in mots_a_enlever]
-
         nom_produit = " ".join(mots)
-
         info_produit = get_product_info(nom_produit)
-
         context_dynamique = info_produit or get_catalog()
-
 
     deja_converse = "L'utilisateur a déjà commencé la conversation." if history else "Ceci est le début de la conversation."
 
@@ -244,61 +207,42 @@ def ask_ai(user_id, question):
     )
 
     messages = [{"role": "system", "content": prompt_system}]
-
     if history:
         messages.extend(history)
-
     messages.append({"role": "user", "content": question})
 
     try:
-
         response = client.chat.completions.create(
             model="gpt-5-mini",
             messages=messages
         )
-
         reply = response.choices[0].message.content
 
-        history.append({"role": "user", "content": question})
-        history.append({"role": "assistant", "content": reply})
-
-        conversation_memory[user_id] = history[-10:]
+        # Mémorisation conversation + timestamp
+        conversation_memory[user_email_key] = {"history": history[-10:] + [{"role":"user","content":question},{"role":"assistant","content":reply}],
+                                              "last_active": datetime.now()}
 
         return reply
-
     except Exception as e:
-
         print(f"Erreur OpenAI : {e}")
-
         return "Désolé, j'ai un petit problème technique."
 
-
-# --- ROUTE API ---
-
+# ---------------- ROUTE API ----------------
 @app.route("/chat", methods=["POST"])
 def chat():
-
     data = request.get_json()
-
     if not data:
         return jsonify({"reponse": "Erreur"}), 400
-
     question = data.get("question") or data.get("message") or ""
-
     user_id = data.get("user_id", "default")
 
     if "commande" in question.lower():
-
         nums = re.findall(r'\d+', question)
-
         if nums:
-
             return jsonify({"reponse": get_order_status(nums[0])})
 
     return jsonify({"reponse": ask_ai(user_id, question)})
 
-
-# --- LANCEMENT ---
-
+# ---------------- LANCEMENT ----------------
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
