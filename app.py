@@ -111,7 +111,7 @@ def get_order_status(order_id):
         order = response.json()
         if response.status_code == 200:
             return f"La commande #{order_id} est actuellement : {order['status']}."
-        return "Commande introuvable."
+        return "Je trouve pas votre commande veuillez bien verifier votre numéro de commande."
     except: return "Erreur de vérification."
 
 # ---------------- LOGIQUE IA AVEC ISOLATION RENFORCÉE ----------------
@@ -161,7 +161,7 @@ def ask_ai(user_id, question):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5-mini", # Modèle conservé selon ta demande
+            model="gpt-4o-mini", # Modèle conservé selon ta demande
             messages=messages,
             temperature=0 
         )
@@ -198,3 +198,4 @@ if __name__ == "__main__":
     # Récupération du port dynamique pour Render ou 5000 par défaut
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+
