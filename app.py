@@ -5,9 +5,6 @@ from openai import OpenAI
 import mysql.connector
 import re
 import os
-import threading
-import time
-from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,187 +12,176 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-# ---------------- CONFIGURATION OPENAI ----------------
+# Configuration OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# ---------------- MÉMOIRE ISOLÉE PAR USER_ID ----------------
-conversation_memory = {}  
-user_data_memory = {}
+# Mémoire conversationnelle
+conversation_memory = {}
 
-# ---------------- CONFIGURATION BDD ----------------
+# Configuration Base de Données Hostinger
 db_config = {
-    "host": os.getenv("DB_HOST") or "sql1270.main-hosting.eu",
-    "user": os.getenv("DB_USER") or "u637875669_xOcRm",
-    "password": os.getenv("DB_PASSWORD") or "billykeke1234K@#",
-    "database": os.getenv("DB_NAME") or "u637875669_mAofs",
-    "connect_timeout": 10
+    "host": "sql1270.main-hosting.eu",
+    "user": "u637875669_xOcRm",
+    "password": "billykeke1234K@#",  # tu pourras changer après
+    "database": "u637875669_mAofs",
+    "raise_on_warnings": True
 }
 
-# ---------------- UTILITAIRES BDD ----------------
+shop_info = """
+Nom boutique : Graham Shopping
+Adresse : 45 Rue de Vaucelles 14000 Caen
+Email : info@grahamshoping.fr
+Téléphone : 0775958076
+Horaires : H24, 7/7
+"""
+
+# Connexion API WooCommerce
+wcapi = API(
+    url=os.getenv("WC_URL"),
+    consumer_key=os.getenv("WC_CONSUMER_KEY"),
+    consumer_secret=os.getenv("WC_CONSUMER_SECRET"),
+    version="wc/v3",
+    verify_ssl=True
+)
+
+# --- FONCTIONS DE BASE DE DONNÉES ---
 def db_query(query, params=(), fetchone=False):
     try:
         conn = mysql.connector.connect(**db_config)
         cursor = conn.cursor(dictionary=True)
         cursor.execute(query, params)
-        if query.strip().upper().startswith("SELECT"):
-            result = cursor.fetchone() if fetchone else cursor.fetchall()
-        else:
-            conn.commit()
-            result = cursor.lastrowid
+        result = cursor.fetchone() if fetchone else cursor.fetchall()
         conn.close()
         return result
     except Exception as e:
         print(f"Erreur DB: {e}")
         return None
 
-def save_conversation(user_id, email, message_user, message_ai):
-    """Sauvegarde chaque message dans la table SQL"""
+def get_catalog():
+    """Récupère les derniers produits avec prix et stock"""
     query = """
-        INSERT INTO conversations (user_id, email, message_user, message_ai, created_at)
-        VALUES (%s, %s, %s, %s, %s)
-    """
-    db_query(query, (user_id, email, message_user, message_ai, datetime.now()))
-
-# ---------------- NETTOYAGE MÉMOIRE VIVE ----------------
-def cleanup_memory():
-    while True:
-        now = datetime.now()
-        keys_to_del = [k for k, v in conversation_memory.items() 
-                       if now - v.get("last_active", now) > timedelta(minutes=30)]
-        for k in keys_to_del:
-            del conversation_memory[k]
-            if k in user_data_memory: del user_data_memory[k]
-        time.sleep(600)
-
-threading.Thread(target=cleanup_memory, daemon=True).start()
-
-# ---------------- CONFIGURATION BOUTIQUE ----------------
-shop_info = """
-Boutique : Graham Shopping | Caen, France
-Contact boutique : info@grahamshoping.fr | 0775958076
-"""
-
-wcapi = API(
-    url=os.getenv("WC_URL"),
-    consumer_key=os.getenv("WC_CONSUMER_KEY"),
-    consumer_secret=os.getenv("WC_CONSUMER_SECRET"),
-    version="wc/v3"
-)
-
-# ---------------- FONCTIONS MÉTIER ----------------
-
-def get_customer_by_email(email):
-    try:
-        response = wcapi.get("customers", params={"email": email})
-        data = response.json()
-        return data[0]["id"] if response.status_code == 200 and data else None
-    except: return None
-
-def db_get_catalog():
-    """Récupère les produits RÉELS avec le préfixe vkccpq_"""
-    query = """
-    SELECT p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix
-    FROM vkccpq_wp_posts p
-    INNER JOIN vkccpq_wp_postmeta m1 ON p.ID = m1.post_id AND m1.meta_key = '_price'
+    SELECT p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix, m2.meta_value as stock
+    FROM wp_posts p
+    INNER JOIN wp_postmeta m1 ON p.ID = m1.post_id AND m1.meta_key = '_price'
+    LEFT JOIN wp_postmeta m2 ON p.ID = m2.post_id AND m2.meta_key = '_stock'
     WHERE p.post_type = 'product' AND p.post_status = 'publish'
-    ORDER BY p.post_date DESC LIMIT 15
+    ORDER BY p.post_date DESC LIMIT 10
     """
     items = db_query(query)
     if items:
-        return "\n".join([f"- {i['post_title']} : {i['prix']}€" for i in items])
-    return "Catalogue actuellement indisponible."
+        liste = "\n".join([f"- {i['post_title'].upper()}: {i['prix']}€ (Stock: {i['stock'] or 'Dispo'})" for i in items])
+        return f"\nVoici nos articles disponibles :\n{liste}"
+    return "\nLe catalogue est actuellement vide."
+
+def get_product_info(product_name):
+    """Cherche un produit exact ou proche"""
+    if not product_name or len(product_name) < 2:
+        return ""
+    query = """
+    SELECT p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix, m2.meta_value as stock
+    FROM wp_posts p
+    INNER JOIN wp_postmeta m1 ON p.ID = m1.post_id AND m1.meta_key = '_price'
+    LEFT JOIN wp_postmeta m2 ON p.ID = m2.post_id AND m2.meta_key = '_stock'
+    WHERE p.post_type = 'product' AND p.post_status = 'publish'
+    AND p.post_title LIKE %s LIMIT 1
+    """
+    res = db_query(query, ("%" + product_name.strip() + "%",), fetchone=True)
+    if res:
+        stock = res['stock'] if res['stock'] not in [None, ''] else "Disponible"
+        return f"Produit réel : {res['post_title'].upper()} | Prix : {res['prix']}€ | Stock : {stock}"
+    return ""
 
 def get_order_status(order_id):
+    """Récupère le statut d'une commande et le traduit en phrase française"""
     try:
         response = wcapi.get(f"orders/{order_id}")
         order = response.json()
-        if response.status_code == 200:
-            return f"La commande #{order_id} est actuellement : {order['status']}."
-        return "Je trouve pas votre commande veuillez bien verifier votre numéro de commande."
-    except: return "Erreur de vérification."
+        if response.status_code == 200 and "status" in order:
+            status_map = {
+                'pending': 'en attente',
+                'processing': 'en cours de traitement',
+                'completed': 'terminée',
+                'shipped': 'expédiée',
+                'cancelled': 'annulée',
+                'failed': 'échouée',
+                'refunded': 'remboursée'
+            }
+            return f"Votre commande #{order_id} est {status_map.get(order['status'], order['status'])}."
+        return "je trouve pas votre Commande veuillez verifier votre numéro de commande."
+    except:
+        return "Erreur lors de la vérification de la commande."
 
-# ---------------- LOGIQUE IA AVEC ISOLATION RENFORCÉE ----------------
-
+# --- LOGIQUE IA ---
 def ask_ai(user_id, question):
-    uid = str(user_id).strip()
-    
-    if uid not in user_data_memory:
-        user_data_memory[uid] = {"email": None, "customer_id": None}
-    if uid not in conversation_memory:
-        conversation_memory[uid] = {"history": [], "last_active": datetime.now()}
+    history = conversation_memory.get(user_id, [])
 
-    # Détection Email
-    email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', question)
-    if email_match:
-        email = email_match.group(0).lower()
-        cid = get_customer_by_email(email)
-        
-        if cid:
-            # SÉCURITÉ : RESET de l'historique lors de l'identification
-            conversation_memory[uid]["history"] = [] 
-            user_data_memory[uid]["email"] = email
-            user_data_memory[uid]["customer_id"] = cid
-            reply = f"Compte reconnu ✅. Votre session a été réinitialisée pour l'email {email}. Comment puis-je vous aider ?"
-            save_conversation(uid, email, question, reply)
-            return reply
-        return "Email non reconnu. Veuillez créer un compte sur le site de notre boutique."
+    low_q = question.lower()
+    context_dynamique = ""
 
-    current_email = user_data_memory[uid]["email"]
-    history = conversation_memory[uid]["history"]
-    catalog_data = db_get_catalog()
+    # 1️⃣ Si question sur le catalogue
+    if any(word in low_q for word in ["catalogue", "boutique", "vends", "articles", "quoi", "disponible"]):
+        context_dynamique = get_catalog()
     
-    # PROMPT AVEC SÉPARATION STRICTE IDENTITÉ / BOUTIQUE
+    # 2️⃣ Si question sur un produit spécifique
+    elif any(word in low_q for word in ["prix", "stock", "combien", "coûte"]):
+        mots_a_enlever = ["le", "la", "du", "de", "prix", "stock", "combien", "coûte", "est", "quel", "quelle"]
+        mots = [w for w in low_q.replace('?', '').split() if w not in mots_a_enlever]
+        nom_produit = " ".join(mots)
+        info_produit = get_product_info(nom_produit)
+        context_dynamique = info_produit or get_catalog()
+
+    # 3️⃣ Indiquer si c’est une suite de conversation
+    deja_converse = "L'utilisateur a déjà commencé la conversation." if history else "Ceci est le début de la conversation."
+
+    # --- Préparer le prompt ---
     prompt_system = (
-        f"Tu es l'assistant de Graham Shopping.\n\n"
-        f"INFOS CONTACT BOUTIQUE : {shop_info}\n"
-        f"IDENTITÉ DU CLIENT ACTUEL : {current_email if current_email else 'Non identifié'}\n\n"
-        f"=== CATALOGUE Graham Shopping ===\n{catalog_data}\n================================\n\n"
-        "CONSIGNES CRITIQUES :\n"
-        "1. Si on te demande 'quel est MON mail', donne l'IDENTITÉ DU CLIENT ACTUEL et non celui de la boutique.\n"
-        "2. Ne cite que les produits du CATALOGUE ci-dessus. Si absent, dis que nous ne l'avons pas.\n"
-        "3. L'historique ne contient que les messages de ce client précis.\n"
-        "4. Température : 0 (FACTUEL)."
+        f"Tu es l'assistant expert Graham Shopping.\n{shop_info}\n"
+        f"{context_dynamique}\n"
+        f"{deja_converse}\n"
+        "Continue la conversation naturellement, guide le client jusqu'au paiement.\n"
+        "Ne propose que les articles présents dans le catalogue.\n"
+        "Traduis toujours les statuts des commandes en français.\n"
+        "Réponds poliment, sans répéter des salutations inutiles."
     )
 
-    messages = [{"role": "system", "content": prompt_system}] + history + [{"role": "user", "content": question}]
+    messages = [{"role": "system", "content": prompt_system}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": question})
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini", # Modèle conservé selon ta demande
-            messages=messages,
-            temperature=0 
+            model="gpt-5-mini",
+            messages=messages
         )
         reply = response.choices[0].message.content
 
-        # Sauvegarde dans l'historique isolé
+        # Mise à jour mémoire conversation
         history.append({"role": "user", "content": question})
         history.append({"role": "assistant", "content": reply})
-        conversation_memory[uid]["history"] = history[-10:]
-        conversation_memory[uid]["last_active"] = datetime.now()
-        
-        save_conversation(uid, current_email, question, reply)
+        conversation_memory[user_id] = history[-10:]
+
         return reply
     except Exception as e:
-        print(f"Erreur : {e}")
-        return "Un problème technique survient."
+        print(f"Erreur OpenAI : {e}")
+        return "Désolé, j'ai un petit problème technique."
 
-# ---------------- ROUTE API ----------------
-
+# --- ROUTE API ---
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json()
-    user_id = str(data.get("user_id", "session_unique"))
+    if not data: return jsonify({"reponse": "Erreur"}), 400
     question = data.get("question") or data.get("message") or ""
+    user_id = data.get("user_id", "default")
 
+    # Si la question contient "commande", on essaye de récupérer le numéro
     if "commande" in question.lower():
         nums = re.findall(r'\d+', question)
-        if nums: return jsonify({"reponse": get_order_status(nums[0])})
+        if nums: 
+            return jsonify({"reponse": get_order_status(nums[0])})
 
     return jsonify({"reponse": ask_ai(user_id, question)})
 
-# ---------------- LANCEMENT (CORRIGÉ POUR RENDER) ----------------
+# --- LANCEMENT SERVEUR ---
 if __name__ == "__main__":
-    # Récupération du port dynamique pour Render ou 5000 par défaut
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
-
+    app.run(host="0.0.0.0", port=5000)
