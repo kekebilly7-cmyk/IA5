@@ -53,61 +53,78 @@ def db_query(query, params=(), fetchone=False):
         return None
 
 def get_catalog():
+    """Récupère les produits avec leur VRAI ID WordPress"""
     query = """
     SELECT p.ID, p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix
     FROM wp_posts p
     INNER JOIN wp_postmeta m1 ON p.ID = m1.post_id AND m1.meta_key = '_price'
     WHERE p.post_type = 'product' AND p.post_status = 'publish'
-    ORDER BY p.post_date DESC LIMIT 15
+    ORDER BY p.post_date DESC LIMIT 20
     """
     items = db_query(query)
     if items:
-        return "\n".join([f"- {i['post_title']} (ID: {i['ID']}): {i['prix']}€" for i in items])
+        # On formate clairement pour que l'IA ne confonde pas avec AliExpress
+        return "\n".join([f"NOM: {i['post_title']} | ID_WORDPRESS: {i['ID']} | PRIX: {i['prix']}€" for i in items])
     return "Catalogue vide."
 
 def create_woo_order(product_id, customer_email, quantity=1):
+    """Crée la commande et log l'erreur si besoin"""
+    print(f"--- Tentative de commande : ID {product_id} pour {customer_email} ---")
+    
     data = {
-        "payment_method": "other",
-        "payment_method_title": "Paiement en ligne",
+        "payment_method": "cod",
+        "payment_method_title": "Paiement à la livraison / Test",
         "set_paid": False,
-        "billing": {"email": customer_email},
-        "line_items": [{"product_id": product_id, "quantity": quantity}]
+        "billing": {
+            "email": customer_email,
+            "first_name": "Client",
+            "last_name": "IA"
+        },
+        "line_items": [{"product_id": int(product_id), "quantity": int(quantity)}]
     }
+    
     try:
         response = wcapi.post("orders", data)
+        res_data = response.json()
+        
         if response.status_code == 201:
-            return f"COMMANDE RÉUSSIE : Numéro officiel #{response.json()['id']}"
-        return "Erreur lors de la création sur le site."
+            print(f"✅ SUCCÈS : Commande #{res_data['id']} créée.")
+            return f"COMMANDE RÉUSSIE : Numéro officiel #{res_data['id']}"
+        else:
+            print(f"❌ ERREUR WOOCOMMERCE : {res_data}")
+            return f"Erreur WooCommerce : {res_data.get('message', 'ID produit incorrect ou stock épuisé')}"
     except Exception as e:
+        print(f"❌ ERREUR SYSTÈME : {str(e)}")
         return f"Erreur technique : {str(e)}"
 
 def ask_ai(user_id, question):
     history = conversation_memory.get(user_id, [])
     
-    # On récupère TOUJOURS le catalogue pour que l'IA connaisse les IDs
-    catalogue_actuel = get_catalog()
+    # On injecte le catalogue frais
+    catalogue = get_catalog()
 
     prompt_system = (
-        f"Tu es l'assistant de vente Graham Shopping.\n{shop_info}\n\n"
-        f"VOICI TES PRODUITS EN STOCK (ID et Noms) :\n{catalogue_actuel}\n\n"
-        "CONSIGNES DE VENTE :\n"
-        "1. Ne demande JAMAIS l'ID d'un produit au client. Utilise les IDs listés ci-dessus.\n"
-        "2. Si le client veut un produit, demande-lui uniquement son EMAIL pour valider.\n"
-        "3. Une fois l'email reçu, utilise l'outil 'create_woo_order' immédiatement.\n"
-        "4. N'invente jamais de numéro de commande. Donne le numéro officiel retourné par l'outil.\n"
-        "5. Sois chaleureux, pas technique."
+        f"Tu es l'assistant Graham Shopping.\n{shop_info}\n\n"
+        f"VOICI TA LISTE DE PRODUITS OFFICIELLE (ID_WORDPRESS uniquement) :\n{catalogue}\n\n"
+        "RÈGLES CRUCIALES :\n"
+        "1. IGNORE TOTALEMENT les numéros longs (ex: 1005...) que le client pourrait envoyer. Ce sont des IDs AliExpress, ils ne marchent pas.\n"
+        "2. Identifie le produit demandé par le client dans la LISTE OFFICIELLE ci-dessus.\n"
+        "3. Utilise uniquement l'ID_WORDPRESS associé (ex: 742) pour l'outil 'create_woo_order'.\n"
+        "4. Si le client veut acheter, demande juste son EMAIL.\n"
+        "5. Ne demande JAMAIS d'ID au client. C'est toi l'expert, tu les as dans ta liste.\n"
+        "6. Ne dis pas 'Je vais essayer', dis 'Je m'en occupe'."
     )
 
     tools = [{
         "type": "function",
         "function": {
             "name": "create_woo_order",
-            "description": "Crée une commande réelle dans la boutique",
+            "description": "Crée une commande réelle dans WooCommerce",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {"type": "integer", "description": "L'ID numérique du produit trouvé dans le catalogue"},
-                    "customer_email": {"type": "string", "description": "L'email du client"},
+                    "product_id": {"type": "integer", "description": "L'ID_WORDPRESS du produit"},
+                    "customer_email": {"type": "string"},
                     "quantity": {"type": "integer", "default": 1}
                 },
                 "required": ["product_id", "customer_email"]
@@ -127,22 +144,20 @@ def ask_ai(user_id, question):
             tool_choice="auto"
         )
         
-        response_message = response.choices[0].message
+        msg = response.choices[0].message
         
-        if response_message.tool_calls:
-            messages.append(response_message)
-            for tool_call in response_message.tool_calls:
+        if msg.tool_calls:
+            messages.append(msg)
+            for tool_call in msg.tool_calls:
                 args = json.loads(tool_call.function.arguments)
-                # Exécution réelle
-                res_commande = create_woo_order(args.get("product_id"), args.get("customer_email"), args.get("quantity", 1))
-                
-                messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": res_commande})
+                # L'IA appelle la fonction avec le bon ID
+                resultat = create_woo_order(args.get("product_id"), args.get("customer_email"), args.get("quantity", 1))
+                messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": resultat})
             
-            # Réponse finale de confirmation
-            final_response = client.chat.completions.create(model="gpt-4o-mini", messages=messages)
-            reply = final_response.choices[0].message.content
+            final_res = client.chat.completions.create(model="gpt-4o-mini", messages=messages)
+            reply = final_res.choices[0].message.content
         else:
-            reply = response_message.content
+            reply = msg.content
 
         history.append({"role": "user", "content": question})
         history.append({"role": "assistant", "content": reply})
@@ -150,8 +165,8 @@ def ask_ai(user_id, question):
         return reply
 
     except Exception as e:
-        print(f"Erreur : {e}")
-        return "Je suis à votre disposition pour prendre votre commande."
+        print(f"Erreur Ask_AI: {e}")
+        return "Désolé, je rencontre une difficulté. Pouvez-vous répéter votre demande ?"
 
 @app.route("/chat", methods=["POST"])
 def chat():
