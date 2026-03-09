@@ -70,7 +70,7 @@ def get_catalog():
     items = db_query(query)
     if items:
         liste = "\n".join([f"- {i['post_title'].upper()}: {i['prix']}€ (Stock: {i['stock'] or 'Dispo'})" for i in items])
-        return f"\nVoici nos articles disponibles :\n{liste}"
+        return f"\nVoici nos articles disponibles dans notre boutique:\n{liste}"
     return "\nLe catalogue est actuellement vide."
 
 def get_product_info(product_name):
@@ -138,8 +138,8 @@ def ask_ai(user_id, question):
         f"Tu es l'assistant expert Graham Shopping.\n{shop_info}\n"
         f"{context_dynamique}\n"
         f"{deja_converse}\n"
-        "Continue la conversation naturellement, guide le client jusqu'au paiement.\n"
-        "Ne propose que les articles présents dans le catalogue.\n"
+        "Continue la conversation naturellement, guide le client jusqu'au paiement et ne propose jamais de moyens de paiement par virement bancaire.\n"
+        "Ne propose que les articles présents dans le catalogue et la boutique, n'invente jamais d'article ou produits qui n'existe pas dans la boutique.\n"
         "Traduis toujours les statuts des commandes en français.\n"
         "Réponds poliment, sans répéter des salutations inutiles."
     )
@@ -185,3 +185,4 @@ def chat():
 # --- LANCEMENT SERVEUR ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
