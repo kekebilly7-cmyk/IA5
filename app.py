@@ -138,7 +138,7 @@ def ask_ai(user_id, question):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-5-mini",
             messages=messages,
             tools=tools,
             tool_choice="auto"
@@ -154,7 +154,7 @@ def ask_ai(user_id, question):
                 resultat = create_woo_order(args.get("product_id"), args.get("customer_email"), args.get("quantity", 1))
                 messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": resultat})
             
-            final_res = client.chat.completions.create(model="gpt-4o-mini", messages=messages)
+            final_res = client.chat.completions.create(model="gpt-5-mini", messages=messages)
             reply = final_res.choices[0].message.content
         else:
             reply = msg.content
@@ -178,3 +178,4 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
