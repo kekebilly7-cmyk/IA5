@@ -5,7 +5,6 @@ from openai import OpenAI
 import mysql.connector
 import re
 import os
-import json
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -13,13 +12,17 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
+# Configuration OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# Mémoire conversationnelle
 conversation_memory = {}
 
+# Configuration Base de Données Hostinger
 db_config = {
     "host": "sql1270.main-hosting.eu",
     "user": "u637875669_xOcRm",
-    "password": "billykeke1234K@#",
+    "password": "billykeke1234K@#",  # tu pourras changer après
     "database": "u637875669_mAofs",
     "raise_on_warnings": True
 }
@@ -32,6 +35,7 @@ Téléphone : 0775958076
 Horaires : H24, 7/7
 """
 
+# Connexion API WooCommerce
 wcapi = API(
     url=os.getenv("WC_URL"),
     consumer_key=os.getenv("WC_CONSUMER_KEY"),
@@ -40,6 +44,7 @@ wcapi = API(
     verify_ssl=True
 )
 
+# --- FONCTIONS DE BASE DE DONNÉES ---
 def db_query(query, params=(), fetchone=False):
     try:
         conn = mysql.connector.connect(**db_config)
@@ -53,129 +58,130 @@ def db_query(query, params=(), fetchone=False):
         return None
 
 def get_catalog():
-    """Récupère les produits avec leur VRAI ID WordPress"""
+    """Récupère les derniers produits avec prix et stock"""
     query = """
-    SELECT p.ID, p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix
+    SELECT p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix, m2.meta_value as stock
     FROM wp_posts p
     INNER JOIN wp_postmeta m1 ON p.ID = m1.post_id AND m1.meta_key = '_price'
+    LEFT JOIN wp_postmeta m2 ON p.ID = m2.post_id AND m2.meta_key = '_stock'
     WHERE p.post_type = 'product' AND p.post_status = 'publish'
-    ORDER BY p.post_date DESC LIMIT 20
+    ORDER BY p.post_date DESC LIMIT 10
     """
     items = db_query(query)
     if items:
-        # On formate clairement pour que l'IA ne confonde pas avec AliExpress
-        return "\n".join([f"NOM: {i['post_title']} | ID_WORDPRESS: {i['ID']} | PRIX: {i['prix']}€" for i in items])
-    return "Catalogue vide."
+        liste = "\n".join([f"- {i['post_title'].upper()}: {i['prix']}€ (Stock: {i['stock'] or 'Dispo'})" for i in items])
+        return f"\nVoici nos articles disponibles dans notre boutique:\n{liste}"
+    return "\nLe catalogue est actuellement vide."
 
-def create_woo_order(product_id, customer_email, quantity=1):
-    """Crée la commande et log l'erreur si besoin"""
-    print(f"--- Tentative de commande : ID {product_id} pour {customer_email} ---")
-    
-    data = {
-        "payment_method": "cod",
-        "payment_method_title": "Paiement à la livraison / Test",
-        "set_paid": False,
-        "billing": {
-            "email": customer_email,
-            "first_name": "Client",
-            "last_name": "IA"
-        },
-        "line_items": [{"product_id": int(product_id), "quantity": int(quantity)}]
-    }
-    
+def get_product_info(product_name):
+    """Cherche un produit exact ou proche"""
+    if not product_name or len(product_name) < 2:
+        return ""
+    query = """
+    SELECT p.post_title, CAST(m1.meta_value AS DECIMAL(10,2)) as prix, m2.meta_value as stock
+    FROM wp_posts p
+    INNER JOIN wp_postmeta m1 ON p.ID = m1.post_id AND m1.meta_key = '_price'
+    LEFT JOIN wp_postmeta m2 ON p.ID = m2.post_id AND m2.meta_key = '_stock'
+    WHERE p.post_type = 'product' AND p.post_status = 'publish'
+    AND p.post_title LIKE %s LIMIT 1
+    """
+    res = db_query(query, ("%" + product_name.strip() + "%",), fetchone=True)
+    if res:
+        stock = res['stock'] if res['stock'] not in [None, ''] else "Disponible"
+        return f"Produit réel : {res['post_title'].upper()} | Prix : {res['prix']}€ | Stock : {stock}"
+    return ""
+
+def get_order_status(order_id):
+    """Récupère le statut d'une commande et le traduit en phrase française"""
     try:
-        response = wcapi.post("orders", data)
-        res_data = response.json()
-        
-        if response.status_code == 201:
-            print(f"✅ SUCCÈS : Commande #{res_data['id']} créée.")
-            return f"COMMANDE RÉUSSIE : Numéro officiel #{res_data['id']}"
-        else:
-            print(f"❌ ERREUR WOOCOMMERCE : {res_data}")
-            return f"Erreur WooCommerce : {res_data.get('message', 'ID produit incorrect ou stock épuisé')}"
-    except Exception as e:
-        print(f"❌ ERREUR SYSTÈME : {str(e)}")
-        return f"Erreur technique : {str(e)}"
+        response = wcapi.get(f"orders/{order_id}")
+        order = response.json()
+        if response.status_code == 200 and "status" in order:
+            status_map = {
+                'pending': 'en attente',
+                'processing': 'en cours de traitement',
+                'completed': 'terminée',
+                'shipped': 'expédiée',
+                'cancelled': 'annulée',
+                'failed': 'échouée',
+                'refunded': 'remboursée'
+            }
+            return f"Votre commande #{order_id} est {status_map.get(order['status'], order['status'])}."
+        return "je trouve pas votre Commande veuillez verifier votre numéro de commande."
+    except:
+        return "Erreur lors de la vérification de la commande."
 
+# --- LOGIQUE IA ---
 def ask_ai(user_id, question):
     history = conversation_memory.get(user_id, [])
-    
-    # On injecte le catalogue frais
-    catalogue = get_catalog()
 
+    low_q = question.lower()
+    context_dynamique = ""
+
+    # 1️⃣ Si question sur le catalogue
+    if any(word in low_q for word in ["catalogue", "boutique", "vends", "articles", "quoi", "disponible"]):
+        context_dynamique = get_catalog()
+    
+    # 2️⃣ Si question sur un produit spécifique
+    elif any(word in low_q for word in ["prix", "stock", "combien", "coûte"]):
+        mots_a_enlever = ["le", "la", "du", "de", "prix", "stock", "combien", "coûte", "est", "quel", "quelle"]
+        mots = [w for w in low_q.replace('?', '').split() if w not in mots_a_enlever]
+        nom_produit = " ".join(mots)
+        info_produit = get_product_info(nom_produit)
+        context_dynamique = info_produit or get_catalog()
+
+    # 3️⃣ Indiquer si c’est une suite de conversation
+    deja_converse = "L'utilisateur a déjà commencé la conversation." if history else "Ceci est le début de la conversation."
+
+    # --- Préparer le prompt ---
     prompt_system = (
-        f"Tu es l'assistant Graham Shopping.\n{shop_info}\n\n"
-        f"VOICI TA LISTE DE PRODUITS OFFICIELLE (ID_WORDPRESS uniquement) :\n{catalogue}\n\n"
-        "RÈGLES CRUCIALES :\n"
-        "1. IGNORE TOTALEMENT les numéros longs (ex: 1005...) que le client pourrait envoyer. Ce sont des IDs AliExpress, ils ne marchent pas.\n"
-        "2. Identifie le produit demandé par le client dans la LISTE OFFICIELLE ci-dessus.\n"
-        "3. Utilise uniquement l'ID_WORDPRESS associé (ex: 742) pour l'outil 'create_woo_order'.\n"
-        "4. Si le client veut acheter, demande juste son EMAIL.\n"
-        "5. Ne demande JAMAIS d'ID au client. C'est toi l'expert, tu les as dans ta liste.\n"
-        "6. Ne dis pas 'Je vais essayer', dis 'Je m'en occupe'."
+        f"Tu es l'assistant expert Graham Shopping.\n{shop_info}\n"
+        f"{context_dynamique}\n"
+        f"{deja_converse}\n"
+        "Continue la conversation naturellement, guide le client montre les methodes de paiements disponible sauf virement bancaire,montre aux clients comment il peut passer sa commande lui même et avoir son numéro de commande et facture de commande par mail,ne propose jamais de moyens de paiement par virement bancaire.\n"
+        "Ne propose que les articles présents dans le catalogue et la boutique, n'invente jamais d'article ou produits qui n'existe pas dans la boutique.\n"
+        "Traduis toujours les statuts des commandes en français,utilise une bonne phrase en français pour donner le statut des commandes.\n"
+        "Réponds poliment, sans répéter des salutations inutiles."
     )
 
-    tools = [{
-        "type": "function",
-        "function": {
-            "name": "create_woo_order",
-            "description": "Crée une commande réelle dans WooCommerce",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "product_id": {"type": "integer", "description": "L'ID_WORDPRESS du produit"},
-                    "customer_email": {"type": "string"},
-                    "quantity": {"type": "integer", "default": 1}
-                },
-                "required": ["product_id", "customer_email"]
-            }
-        }
-    }]
-
     messages = [{"role": "system", "content": prompt_system}]
-    messages.extend(history)
+    if history:
+        messages.extend(history)
     messages.append({"role": "user", "content": question})
 
     try:
         response = client.chat.completions.create(
             model="gpt-5-mini",
-            messages=messages,
-            tools=tools,
-            tool_choice="auto"
+            messages=messages
         )
-        
-        msg = response.choices[0].message
-        
-        if msg.tool_calls:
-            messages.append(msg)
-            for tool_call in msg.tool_calls:
-                args = json.loads(tool_call.function.arguments)
-                # L'IA appelle la fonction avec le bon ID
-                resultat = create_woo_order(args.get("product_id"), args.get("customer_email"), args.get("quantity", 1))
-                messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": resultat})
-            
-            final_res = client.chat.completions.create(model="gpt-5-mini", messages=messages)
-            reply = final_res.choices[0].message.content
-        else:
-            reply = msg.content
+        reply = response.choices[0].message.content
 
+        # Mise à jour mémoire conversation
         history.append({"role": "user", "content": question})
         history.append({"role": "assistant", "content": reply})
         conversation_memory[user_id] = history[-10:]
+
         return reply
-
     except Exception as e:
-        print(f"Erreur Ask_AI: {e}")
-        return "Désolé, je rencontre une difficulté. Pouvez-vous répéter votre demande ?"
+        print(f"Erreur OpenAI : {e}")
+        return "Désolé, j'ai un petit problème technique."
 
+# --- ROUTE API ---
 @app.route("/chat", methods=["POST"])
 def chat():
     data = request.get_json()
     if not data: return jsonify({"reponse": "Erreur"}), 400
     question = data.get("question") or data.get("message") or ""
     user_id = data.get("user_id", "default")
+
+    # Si la question contient "commande", on essaye de récupérer le numéro
+    if "commande,demande au client si il s'agit de passer une commande,de savoir le statut d'une commande" in question.lower():
+        nums = re.findall(r'\d+', question)
+        if nums: 
+            return jsonify({"reponse": get_order_status(nums[0])})
+
     return jsonify({"reponse": ask_ai(user_id, question)})
 
+# --- LANCEMENT SERVEUR ---
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
