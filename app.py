@@ -28,7 +28,7 @@ db_config = {
 }
 
 shop_info = """
-Nom boutique : Graham Shopping
+Nom boutique : Graham Shop
 Adresse : 45 Rue de Vaucelles 14000 Caen
 Email : info@grahamshoping.fr
 Téléphone : 0775958076
@@ -138,9 +138,9 @@ def ask_ai(user_id, question):
         f"Tu es l'assistant expert Graham Shopping.\n{shop_info}\n"
         f"{context_dynamique}\n"
         f"{deja_converse}\n"
-        "Continue la conversation naturellement, guide le client montre les methodes de paiements disponible sauf virement bancaire,montre aux clients comment il peut passer sa commande lui même et avoir son numéro de commande et facture de commande par mail,ne propose jamais de moyens de paiement par virement bancaire.\n"
+        "Continue la conversation naturellement, montre aux clients comment passer sa commande et ne propose jamais de moyens de paiement par virement bancaire.\n"
         "Ne propose que les articles présents dans le catalogue et la boutique, n'invente jamais d'article ou produits qui n'existe pas dans la boutique.\n"
-        "Traduis toujours les statuts des commandes en français,utilise une bonne phrase en français pour donner le statut des commandes.\n"
+        "Traduis toujours les statuts des commandes en français.\n"
         "Réponds poliment, sans répéter des salutations inutiles."
     )
 
@@ -175,7 +175,7 @@ def chat():
     user_id = data.get("user_id", "default")
 
     # Si la question contient "commande", on essaye de récupérer le numéro
-    if "commande,demande au client si il s'agit de passer une commande,de savoir le statut d'une commande" in question.lower():
+    if "commande" in question.lower():
         nums = re.findall(r'\d+', question)
         if nums: 
             return jsonify({"reponse": get_order_status(nums[0])})
