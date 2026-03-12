@@ -157,7 +157,7 @@ def ask_ai(user_id, question):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5-mini", # Remplace par ton modèle si nécessaire
+            model="gpt-4o-mini", # Remplace par ton modèle si nécessaire
             messages=messages,
             tools=tools
         )
@@ -203,6 +203,7 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 
 
 
