@@ -90,7 +90,7 @@ def get_order_status(order_id):
         response = wcapi.get(f"orders/{order_id}")
         order = response.json()
         if response.status_code == 200:
-            status_map = {'pending': 'en attente', 'processing': 'en cours de traitement', 'completed': 'Commande terminée', 'cancelled': 'Commande annulée veuillez contacter la boutique si vous n'etes pas l'origine'}
+            status_map = {'pending': 'en attente', 'processing': 'en cours de traitement', 'completed': 'Commande terminée', 'cancelled': 'Commande annulée'}
             return f"La commande #{order_id} est {status_map.get(order['status'], order['status'])}."
         return "je retrouve pas votre commande veuillez vérifier votre saisir du numéro commande."
     except:
@@ -203,4 +203,5 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 
