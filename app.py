@@ -90,9 +90,9 @@ def get_order_status(order_id):
         response = wcapi.get(f"orders/{order_id}")
         order = response.json()
         if response.status_code == 200:
-            status_map = {'pending': 'en attente', 'processing': 'en cours', 'completed': 'terminée', 'cancelled': 'annulée'}
+            status_map = {'pending': 'en attente', 'processing': 'en cours de traitement', 'completed': 'Commande terminée', 'cancelled': 'Commande annulée veuillez contacter la boutique si vous n'etes pas l'origine'}
             return f"La commande #{order_id} est {status_map.get(order['status'], order['status'])}."
-        return "je retrouvepas votre commande veuillez vérifiervotre saisirdu numéro commande."
+        return "je retrouve pas votre commande veuillez vérifier votre saisir du numéro commande."
     except:
         return "Erreur technique lors du suivi."
 
@@ -129,16 +129,16 @@ def ask_ai(user_id, question):
         f"CATALOGUE EN DIRECT :\n{catalogue}\n\n"
         "RÈGLES CRITIQUES :\n"
         "1. Pour chaque produit, affiche l'image ainsi : ![Image](URL).\n"
-        "2. Pour payer, tu DOIS demander l'EMAIL du client,après validation de son email demande nom et prénom,adresse de livraison et numéro de téléphone puis utiliser l'outil 'create_woo_order'.\n"
+        "2. Pour payer, tu DOIS demander l'EMAIL du client,après validation de son email demande nom et prénom,adresse de livraison et numéro de téléphone puis utiliser l'outil ne parle pas de outils dans la conversation avec le client'create_woo_order'.\n"
         "3. Ne propose JAMAIS de virement bancaire.\n"
-        "4. Réponds toujours en français poli et parle beaucoup pour bien détailléla procedure de comment tu vas créerla commande du client."
+        "4. Réponds toujours en français poli et parle beaucoup pour bien détaillé la procedure de comment tu vas créerla commande du client sans parler de l'outils create woo order."
     )
 
     tools = [{
         "type": "function",
         "function": {
             "name": "create_woo_order",
-            "description": "Crée une commande avec les adresses de livraison,email ,nom et prénom et numéro de téléphone du client et génère un lien de paiement Checkout",
+            "description": "Crée une commande avec les adresses de livraison,email ,nom et prénom et numéro de téléphone du client et génère un lien de paiement Checkout met touts les articles dans le checkout pour le client,ne fais pas de lien de paiément pour chaque articles",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -172,7 +172,7 @@ def ask_ai(user_id, question):
                 messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": res})
             
             # Deuxième appel pour formater la réponse finale avec le lien
-            final_res = client.chat.completions.create(model="gpt-4o-mini", messages=messages)
+            final_res = client.chat.completions.create(model="gpt-5-mini", messages=messages)
             reply = final_res.choices[0].message.content
         else:
             reply = msg.content
@@ -203,3 +203,4 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
