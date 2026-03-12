@@ -157,7 +157,7 @@ def ask_ai(user_id, question):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o-mini", # Remplace par ton modèle si nécessaire
+            model="gpt-5.4", # Remplace par ton modèle si nécessaire
             messages=messages,
             tools=tools
         )
@@ -172,7 +172,7 @@ def ask_ai(user_id, question):
                 messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": res})
             
             # Deuxième appel pour formater la réponse finale avec le lien
-            final_res = client.chat.completions.create(model="gpt-5-mini", messages=messages)
+            final_res = client.chat.completions.create(model="gpt-5.4", messages=messages)
             reply = final_res.choices[0].message.content
         else:
             reply = msg.content
@@ -203,6 +203,7 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 
 
 
