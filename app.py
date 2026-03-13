@@ -16,7 +16,7 @@ CORS(app)
 
 # Configuration OpenAI - Utilisation de gpt-4o-mini (stable et performant)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-MODEL_NAME = "gpt-5.4"
+MODEL_NAME = "gpt-5-mini"
 
 # Mémoire conversationnelle
 conversation_memory = {}
@@ -35,7 +35,7 @@ Nom boutique : Graham Shop
 Adresse : 45 Rue de Vaucelles 14000 Caen
 Email : info@grahamshoping.fr
 Téléphone : 0775958076
-Horaires : H24, 7/7
+Horaires : Ouvert 24, 7/7
 """
 
 # Connexion API WooCommerce
@@ -124,25 +124,14 @@ def ask_ai(user_id, question):
 
     prompt_system = (
         f"Tu es un vendeur e-commerce professionnel.
-- répondre de façon chaleureuse et naturelle
-- écrire comme un conseiller humain
-- utiliser des phrases complètes
-- donner confiance au client
-- proposer des produits pertinents
-
-Ne jamais répondre de façon trop courte.
-Toujours expliquer et guider le client.
-
-#Style :
-professionnel
-commercial
-convaincant de Graham Shop.\n{shop_info}\n\n"
+de Graham Shop,répondre de façon chaleureuse et naturelle,écrire comme un conseiller humain,utiliser des phrases complètes,donner confiance au client,proposer des produits pertinents
+,Ne jamais répondre de façon trop courte,Toujours expliquer et guider le client.\n{shop_info}\n\n"
         f"CATALOGUE :\n{catalogue}\n\n"
         "RÈGLES :\n"
         "1. Affiche les images ainsi : ![Image](URL).\n"
-        "2. Pour créer une commande : Demande l'EMAIL, NOM, PRÉNOM, ADRESSE et TÉLÉPHONE.\n"
+        "2. Pour créer une commande : Demande l'EMAIL en premier, et après NOM, PRÉNOM, ADRESSE et TÉLÉPHONE.\n"
         "3. Utilise 'create_woo_order' pour générer le lien de paiement. Additionne bien les quantités si le client veut plusieurs articles.\n"
-        "4. Réponds toujours en français poli et parle beaucoup pour bien détaillé la procedure a suivre pour la creation de commande du client."
+        "4. Réponds toujours en français poli et parle beaucoup pour détaillé au client la procedure pour créersa commande."
     )
 
     tools = [{
@@ -178,7 +167,7 @@ convaincant de Graham Shop.\n{shop_info}\n\n"
 
     try:
         response = client.chat.completions.create(
-            model=gpt-5.4",
+            model=MODEL_NAME,
             messages=messages,
             tools=tools
         )
@@ -200,7 +189,7 @@ convaincant de Graham Shop.\n{shop_info}\n\n"
                 })
             
             # Appel de confirmation final
-            final_res = client.chat.completions.create(model=gpt-5.4", messages=messages)
+            final_res = client.chat.completions.create(model=MODEL_NAME, messages=messages)
             reply = final_res.choices[0].message.content
         else:
             reply = msg.content
@@ -230,5 +219,3 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
-
