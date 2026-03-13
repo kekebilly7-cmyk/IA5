@@ -108,7 +108,7 @@ def get_order_status(order_id):
         if response.status_code == 200:
 
             status_map = {
-                'pending': 'en attente',
+                'pending': 'en attente de paiement ',
                 'processing': 'en cours de traitement de paiement ',
                 'completed': 'la commande est terminée',
                 'cancelled': 'a été annulée  veuillez contacter le service clientèle',
@@ -332,6 +332,7 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
+
 
 
 
