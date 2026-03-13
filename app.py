@@ -16,7 +16,7 @@ CORS(app)
 
 # Configuration OpenAI - Utilisation de gpt-4o-mini (stable et performant)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-MODEL_NAME = "gpt-4o-mini"
+MODEL_NAME = "gpt-5.4"
 
 # Mémoire conversationnelle
 conversation_memory = {}
@@ -123,13 +123,28 @@ def ask_ai(user_id, question):
     catalogue = get_catalog()
 
     prompt_system = (
-        f"Tu es l'assistant de Graham Shop.\n{shop_info}\n\n"
+        f"Tu es un vendeur e-commerce professionnel.
+
+Objectifs :
+- répondre de façon chaleureuse et naturelle
+- écrire comme un conseiller humain
+- utiliser des phrases complètes
+- donner confiance au client
+- proposer des produits pertinents
+
+Ne jamais répondre de façon trop courte.
+Toujours expliquer et guider le client.
+
+Style :
+professionnel
+commercial
+convaincant de Graham Shop.\n{shop_info}\n\n"
         f"CATALOGUE :\n{catalogue}\n\n"
         "RÈGLES :\n"
         "1. Affiche les images ainsi : ![Image](URL).\n"
         "2. Pour créer une commande : Demande l'EMAIL, NOM, PRÉNOM, ADRESSE et TÉLÉPHONE.\n"
         "3. Utilise 'create_woo_order' pour générer le lien de paiement. Additionne bien les quantités si le client veut plusieurs articles.\n"
-        "4. Réponds toujours en français poli et détaillé."
+        "4. Réponds toujours en français poli et parle beaucoup pour bien détaillé la procedure a suivre pour la creation de commande du client."
     )
 
     tools = [{
@@ -217,3 +232,4 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
