@@ -14,13 +14,14 @@ load_dotenv()
 app = Flask(__name__)
 CORS(app)
 
-# Configuration OpenAI (Note: gpt-5 n'existe pas encore, j'ai mis gpt-4o-mini pour la performance/prix)
+# Configuration OpenAI - Utilisation de gpt-4o-mini (stable et performant)
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+MODEL_NAME = "gpt-4o-mini"
 
 # Mémoire conversationnelle
 conversation_memory = {}
 
-# Configuration Base de Données Hostinger
+# Configuration Base de Données
 db_config = {
     "host": "sql1270.main-hosting.eu",
     "user": "u637875669_xOcRm",
@@ -61,7 +62,6 @@ def db_query(query, params=(), fetchone=False):
         return None
 
 def get_catalog():
-    """Récupère les produits réels avec Prix, Image et Description courte"""
     query = """
     SELECT p.ID, p.post_title, p.post_excerpt as description, 
            m1.meta_value as prix,
@@ -79,43 +79,41 @@ def get_catalog():
         for i in items:
             prix = i['prix'] if i['prix'] else "0.00"
             img = i['image_url'] if i['image_url'] else "https://grahamshoping.fr/wp-content/uploads/woocommerce-placeholder.png"
-            desc = i['description'].strip() if i['description'] else "Produit disponible chez Graham Shopping."
+            desc = i['description'].strip() if i['description'] else "Produit disponible."
             cat_list.append(f"PRODUIT: {i['post_title']} | ID: {i['ID']} | PRIX: {prix}€ | IMAGE: {img} | DESC: {desc}")
         return "\n".join(cat_list)
-    return "Le catalogue est actuellement vide."
+    return "Le catalogue est vide."
 
 def get_order_status(order_id):
-    """Vérification du statut de commande via WooCommerce"""
     try:
         response = wcapi.get(f"orders/{order_id}")
         order = response.json()
         if response.status_code == 200:
-            status_map = {'pending': 'en attente', 'processing': 'en cours de traitement', 'completed': 'Commande terminée', 'cancelled': 'Commande annulée'}
+            status_map = {'pending': 'en attente', 'processing': 'en cours', 'completed': 'terminée', 'cancelled': 'annulée'}
             return f"La commande #{order_id} est {status_map.get(order['status'], order['status'])}."
-        return "je retrouve pas votre commande veuillez vérifier votre saisir du numéro commande."
+        return "Commande introuvable. Vérifiez le numéro."
     except:
-        return "Erreur technique lors du suivi."
+        return "Erreur lors du suivi."
 
-# --- FONCTION DE PAIEMENT (CHECKOUT) ---
+# --- FONCTION DE PAIEMENT (CHECKOUT MULTI-ARTICLES) ---
 
-def create_woo_order(product_id, customer_email, quantity=1):
-    """Crée une commande et génère le lien de paiement réel"""
+def create_woo_order(customer_email, items):
+    """Crée une commande avec un panier d'articles et renvoie le lien de paiement"""
     data = {
         "status": "pending",
         "billing": {"email": customer_email},
-        "line_items": [{"product_id": int(product_id), "quantity": int(quantity)}]
+        "line_items": items  # items est une liste [{'product_id': 123, 'quantity': 2}, ...]
     }
     try:
         response = wcapi.post("orders", data)
         res_data = response.json()
         if response.status_code == 201:
-            # On renvoie le lien de paiement direct de WooCommerce
-            return f"La commande est prête ! Voici votre lien de paiement sécurisé : {res_data.get('payment_url')}"
-        return f"Désolé, impossible de créer la commande : {res_data.get('message')}"
+            return f"Succès : Voici le lien de paiement : {res_data.get('payment_url')}"
+        return f"Erreur WooCommerce : {res_data.get('message')}"
     except Exception as e:
-        return f"Erreur de connexion WooCommerce : {str(e)}"
+        return f"Erreur technique : {str(e)}"
 
-# --- LOGIQUE IA AVEC TOOLS ---
+# --- LOGIQUE IA ---
 
 def ask_ai(user_id, question):
     if user_id not in conversation_memory:
@@ -125,28 +123,38 @@ def ask_ai(user_id, question):
     catalogue = get_catalog()
 
     prompt_system = (
-        f"Tu es l'assistant de vente de Graham Shop.\n{shop_info}\n\n"
-        f"CATALOGUE EN DIRECT :\n{catalogue}\n\n"
-        "RÈGLES CRITIQUES :\n"
-        "1. Pour chaque produit, affiche l'image ainsi : ![Image](URL).\n"
-        "2. Pour payer, tu DOIS demander l'EMAIL du client,après validation de son email demande nom et prénom,adresse de livraison et numéro de téléphone puis utiliser l'outil ne parle pas de outils dans la conversation avec le client'create_woo_order'.\n"
-        "3. Ne propose JAMAIS de virement bancaire.\n"
-        "4. Réponds toujours en français poli et parle beaucoup pour bien détaillé la procedure de comment tu vas créerla commande du client sans parler de l'outils create woo order."
+        f"Tu es l'assistant de Graham Shop.\n{shop_info}\n\n"
+        f"CATALOGUE :\n{catalogue}\n\n"
+        "RÈGLES :\n"
+        "1. Affiche les images ainsi : ![Image](URL).\n"
+        "2. Pour créer une commande : Demande l'EMAIL, NOM, PRÉNOM, ADRESSE et TÉLÉPHONE.\n"
+        "3. Utilise 'create_woo_order' pour générer le lien de paiement. Additionne bien les quantités si le client veut plusieurs articles.\n"
+        "4. Réponds toujours en français poli et détaillé."
     )
 
     tools = [{
         "type": "function",
         "function": {
             "name": "create_woo_order",
-            "description": "Crée une commande avec les adresses de livraison,email ,nom et prénom et numéro de téléphone du client et génère un lien de paiement Checkout",
+            "description": "Crée une commande et génère un lien de paiement pour un panier d'articles.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "product_id": {"type": "integer", "description": "L'ID du produit"},
-                    "customer_email": {"type": "string", "description": "L'email du client"},
-                    "quantity": {"type": "integer", "default": 1}
+                    "customer_email": {"type": "string", "description": "Email du client"},
+                    "items": {
+                        "type": "array",
+                        "description": "Liste des produits et quantités",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "product_id": {"type": "integer"},
+                                "quantity": {"type": "integer"}
+                            },
+                            "required": ["product_id", "quantity"]
+                        }
+                    }
                 },
-                "required": ["product_id", "customer_email"]
+                "required": ["customer_email", "items"]
             }
         }
     }]
@@ -157,22 +165,29 @@ def ask_ai(user_id, question):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5-mini", # Remplace par ton modèle si nécessaire
+            model=MODEL_NAME,
             messages=messages,
             tools=tools
         )
         msg = response.choices[0].message
 
-        # Gestion de l'appel de fonction (Checkout)
         if msg.tool_calls:
             messages.append(msg)
             for tool_call in msg.tool_calls:
                 args = json.loads(tool_call.function.arguments)
-                res = create_woo_order(args.get("product_id"), args.get("customer_email"))
-                messages.append({"role": "tool", "tool_call_id": tool_call.id, "content": res})
+                # Appel de la fonction avec les nouveaux paramètres
+                res_content = create_woo_order(
+                    customer_email=args.get("customer_email"),
+                    items=args.get("items")
+                )
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": res_content
+                })
             
-            # Deuxième appel pour formater la réponse finale avec le lien
-            final_res = client.chat.completions.create(model="gpt-5.4", messages=messages)
+            # Appel de confirmation final
+            final_res = client.chat.completions.create(model=MODEL_NAME, messages=messages)
             reply = final_res.choices[0].message.content
         else:
             reply = msg.content
@@ -183,8 +198,8 @@ def ask_ai(user_id, question):
         return reply
 
     except Exception as e:
-        print(f"Erreur : {e}")
-        return "Je rencontre une petite difficulté, pouvez-vous reformuler ?"
+        print(f"Erreur IA : {e}")
+        return "Le service est momentanément indisponible, veuillez réessayer dans un instant."
 
 # --- ROUTES ---
 
@@ -194,7 +209,6 @@ def chat():
     user_id = data.get("user_id", "default")
     question = data.get("question") or data.get("message") or ""
 
-    # Suivi de commande rapide
     if "commande" in question.lower() and re.search(r'\d+', question):
         order_id = re.findall(r'\d+', question)[0]
         return jsonify({"reponse": get_order_status(order_id)})
@@ -203,10 +217,3 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
-
-
-
-
-
-
-
