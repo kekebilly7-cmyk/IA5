@@ -97,7 +97,7 @@ def get_catalog():
 
         return "\n".join(cat_list)
 
-    return "Le catalogue est vide."
+    return "Le catalogue est actuellement vide."
 
 
 def get_order_status(order_id):
@@ -111,7 +111,7 @@ def get_order_status(order_id):
                 'pending': 'en attente',
                 'processing': 'en cours de traitement ',
                 'completed': 'la commande est terminée',
-                'cancelled': 'la commande a été annulée'
+                'cancelled': 'la commande a été annulée si vous n'êtes pas à l'origine de l'annulation veuillez contacter le service clientèle '
             }
 
             return f"La commande #{order_id} est {status_map.get(order['status'], order['status'])}."
@@ -178,7 +178,7 @@ def ask_ai(user_id, question):
     catalogue = get_catalog()
 
     prompt_system = (
-        f"Tu es un vendeur e-commerce professionnel de Graham Shop. "
+        f"Tu es un vendeur e-commerce professionnel de Graham Shop reponds aux premiers messages avec quelques articles et photos. "
         f"Réponds de manière chaleureuse et naturelle comme un conseiller humain. "
         f"Utilise des phrases complètes et inspire confiance au client.\n\n"
         f"{shop_info}\n\n"
@@ -331,4 +331,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
+
 
