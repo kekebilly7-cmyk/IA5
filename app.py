@@ -67,7 +67,30 @@ def db_query(query, params=(), fetchone=False):
         print(f"Erreur DB: {e}")
         return None
 
-# --- MODIFICATION: récupérer tous les produits avec image, prix et description ---
+
+# --- NOUVELLE FONCTION : sauvegarde des ventes IA ---
+def save_ai_sale(user_id, email, items, status="pending"):
+    try:
+        conn = mysql.connector.connect(**db_config)
+        cursor = conn.cursor()
+
+        product_name = json.dumps(items)
+
+        query = """
+        INSERT INTO ai_sales (user_id, email, product_name, status, created_at)
+        VALUES (%s, %s, %s, %s, NOW())
+        """
+
+        cursor.execute(query, (user_id, email, product_name, status))
+        conn.commit()
+        conn.close()
+
+    except Exception as e:
+        print(f"Erreur sauvegarde vente IA: {e}")
+
+
+# --- CATALOGUE PRODUITS ---
+
 def get_catalog():
     query = """
     SELECT p.ID, p.post_title, p.post_excerpt as description, 
@@ -100,6 +123,8 @@ def get_catalog():
     return "Le catalogue est vide actuellement."
 
 
+# --- SUIVI COMMANDE ---
+
 def get_order_status(order_id):
     try:
         response = wcapi.get(f"orders/{order_id}")
@@ -111,7 +136,7 @@ def get_order_status(order_id):
                 'pending': 'en attente de paiement ',
                 'processing': 'en cours de traitement de paiement ',
                 'completed': 'la commande est terminée',
-                'cancelled': 'a été annulée  veuillez contacter le service clientèle',
+                'cancelled': 'a été annulée veuillez contacter le service clientèle',
             }
 
             return f"La commande #{order_id} est {status_map.get(order['status'], order['status'])}."
@@ -122,9 +147,9 @@ def get_order_status(order_id):
         return "Erreur lors du suivi de la commande."
 
 
-# --- CREATION COMMANDE (LIVRAISON MONDIALE) ---
+# --- CREATION COMMANDE WOOCOMMERCE ---
 
-def create_woo_order(customer_email, first_name, last_name, phone, address, city, postcode, country, items):
+def create_woo_order(customer_email, first_name, last_name, phone, address, city, postcode, country, items, user_id=None):
 
     data = {
         "status": "pending",
@@ -157,6 +182,9 @@ def create_woo_order(customer_email, first_name, last_name, phone, address, city
         if response.status_code == 201:
 
             payment_url = res_data.get("payment_url")
+
+            # ENREGISTREMENT DANS LA TABLE ai_sales
+            save_ai_sale(user_id, customer_email, items)
 
             return f"Votre commande est créée avec succès. Voici votre lien de paiement vous pouvez à present payer avec votre carte bancaire ou autres moyens à votre actif : {payment_url}"
 
@@ -265,7 +293,8 @@ def ask_ai(user_id, question):
                     city=args.get("city"),
                     postcode=args.get("postcode"),
                     country=args.get("country"),
-                    items=args.get("items")
+                    items=args.get("items"),
+                    user_id=user_id
                 )
 
                 messages.append({
