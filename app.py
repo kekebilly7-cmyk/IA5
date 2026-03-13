@@ -138,7 +138,7 @@ def ask_ai(user_id, question):
         "type": "function",
         "function": {
             "name": "create_woo_order",
-            "description": "Crée une commande avec les adresses de livraison,email ,nom et prénom et numéro de téléphone du client et génère un lien de paiement Checkout met touts les articles dans le checkout pour le client,ne fais pas de lien de paiément pour chaque articles",
+            "description": "Crée une commande avec les adresses de livraison,email ,nom et prénom et numéro de téléphone du client et génère un lien de paiement Checkout",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -157,7 +157,7 @@ def ask_ai(user_id, question):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-5.4", # Remplace par ton modèle si nécessaire
+            model="gpt-5-mini", # Remplace par ton modèle si nécessaire
             messages=messages,
             tools=tools
         )
@@ -203,6 +203,7 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 
 
 
