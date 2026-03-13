@@ -67,7 +67,7 @@ def db_query(query, params=(), fetchone=False):
         print(f"Erreur DB: {e}")
         return None
 
-
+# --- MODIFICATION: récupérer tous les produits avec image, prix et description ---
 def get_catalog():
     query = """
     SELECT p.ID, p.post_title, p.post_excerpt as description, 
@@ -78,7 +78,7 @@ def get_catalog():
     LEFT JOIN wp_postmeta m2 ON p.ID = m2.post_id AND m2.meta_key = '_thumbnail_id'
     WHERE p.post_type = 'product'
     AND p.post_status = 'publish'
-    ORDER BY p.post_date DESC LIMIT 20
+    ORDER BY p.post_date DESC
     """
 
     items = db_query(query)
@@ -92,7 +92,7 @@ def get_catalog():
             desc = i['description'].strip() if i['description'] else "Produit disponible."
 
             cat_list.append(
-                f"PRODUIT: {i['post_title']} | ID: {i['ID']} | PRIX: {prix}€ | IMAGE: {img} | DESC: {desc}"
+                f"PRODUIT: {i['post_title']} | ID: {i['ID']} | PRIX: {prix}€ | IMAGE: ![Image]({img}) | DESC: {desc}"
             )
 
         return "\n".join(cat_list)
@@ -332,11 +332,3 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
-
-
-
-
-
-
-
-
