@@ -109,9 +109,9 @@ def get_order_status(order_id):
 
             status_map = {
                 'pending': 'en attente',
-                'processing': 'en cours',
-                'completed': 'terminée',
-                'cancelled': 'annulée'
+                'processing': 'en cours de traitement ',
+                'completed': 'la commande est terminée',
+                'cancelled': 'la commande a été annulée'
             }
 
             return f"La commande #{order_id} est {status_map.get(order['status'], order['status'])}."
@@ -122,14 +122,29 @@ def get_order_status(order_id):
         return "Erreur lors du suivi de la commande."
 
 
-# --- CREATION COMMANDE ---
+# --- CREATION COMMANDE (LIVRAISON MONDIALE) ---
 
-def create_woo_order(customer_email, items):
+def create_woo_order(customer_email, first_name, last_name, phone, address, city, postcode, country, items):
 
     data = {
         "status": "pending",
         "billing": {
-            "email": customer_email
+            "first_name": first_name,
+            "last_name": last_name,
+            "address_1": address,
+            "city": city,
+            "postcode": postcode,
+            "country": country,
+            "email": customer_email,
+            "phone": phone
+        },
+        "shipping": {
+            "first_name": first_name,
+            "last_name": last_name,
+            "address_1": address,
+            "city": city,
+            "postcode": postcode,
+            "country": country
         },
         "line_items": items
     }
@@ -143,7 +158,7 @@ def create_woo_order(customer_email, items):
 
             payment_url = res_data.get("payment_url")
 
-            return f"Votre commande est créée avec succès. Voici votre lien de paiement : {payment_url}"
+            return f"Votre commande est créée avec succès. Voici votre lien de paiement vous pouvez à present payer avec votre carte bancaire ou autres moyens à votre actif : {payment_url}"
 
         return f"Erreur WooCommerce : {res_data}"
 
@@ -170,9 +185,9 @@ def ask_ai(user_id, question):
         f"CATALOGUE :\n{catalogue}\n\n"
         "RÈGLES :\n"
         "1. Affiche les images avec : ![Image](URL)\n"
-        "2. Pour créer une commande demande EMAIL, NOM, PRÉNOM, ADRESSE et TÉLÉPHONE.\n"
+        "2. Pour créer une commande demande EMAIL, NOM, PRÉNOM, ADRESSE, VILLE, CODE POSTAL, PAYS et TÉLÉPHONE.\n"
         "3. Utilise la fonction create_woo_order pour générer le lien de paiement.\n"
-        "4. Réponds toujours en français poli et détaillé."
+        "4. Réponds toujours en français poli et parle beaucoup pour bien expliquer la procedure à suivre pour que tu crée la commande bien détaillée."
     )
 
     tools = [{
@@ -184,6 +199,13 @@ def ask_ai(user_id, question):
                 "type": "object",
                 "properties": {
                     "customer_email": {"type": "string"},
+                    "first_name": {"type": "string"},
+                    "last_name": {"type": "string"},
+                    "phone": {"type": "string"},
+                    "address": {"type": "string"},
+                    "city": {"type": "string"},
+                    "postcode": {"type": "string"},
+                    "country": {"type": "string"},
                     "items": {
                         "type": "array",
                         "items": {
@@ -196,7 +218,17 @@ def ask_ai(user_id, question):
                         }
                     }
                 },
-                "required": ["customer_email", "items"]
+                "required": [
+                    "customer_email",
+                    "first_name",
+                    "last_name",
+                    "phone",
+                    "address",
+                    "city",
+                    "postcode",
+                    "country",
+                    "items"
+                ]
             }
         }
     }]
@@ -225,6 +257,13 @@ def ask_ai(user_id, question):
 
                 res_content = create_woo_order(
                     customer_email=args.get("customer_email"),
+                    first_name=args.get("first_name"),
+                    last_name=args.get("last_name"),
+                    phone=args.get("phone"),
+                    address=args.get("address"),
+                    city=args.get("city"),
+                    postcode=args.get("postcode"),
+                    country=args.get("country"),
                     items=args.get("items")
                 )
 
@@ -292,4 +331,3 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
-
