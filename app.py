@@ -124,8 +124,6 @@ def ask_ai(user_id, question):
 
     prompt_system = (
         f"Tu es un vendeur e-commerce professionnel.
-
-Objectifs :
 - répondre de façon chaleureuse et naturelle
 - écrire comme un conseiller humain
 - utiliser des phrases complètes
@@ -135,7 +133,7 @@ Objectifs :
 Ne jamais répondre de façon trop courte.
 Toujours expliquer et guider le client.
 
-Style :
+#Style :
 professionnel
 commercial
 convaincant de Graham Shop.\n{shop_info}\n\n"
@@ -180,7 +178,7 @@ convaincant de Graham Shop.\n{shop_info}\n\n"
 
     try:
         response = client.chat.completions.create(
-            model=MODEL_NAME,
+            model=gpt-5.4",
             messages=messages,
             tools=tools
         )
@@ -202,7 +200,7 @@ convaincant de Graham Shop.\n{shop_info}\n\n"
                 })
             
             # Appel de confirmation final
-            final_res = client.chat.completions.create(model=MODEL_NAME, messages=messages)
+            final_res = client.chat.completions.create(model=gpt-5.4", messages=messages)
             reply = final_res.choices[0].message.content
         else:
             reply = msg.content
@@ -232,4 +230,5 @@ def chat():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
+
 
