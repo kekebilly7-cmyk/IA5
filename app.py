@@ -16,7 +16,7 @@ CORS(app)
 
 # Configuration OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-MODEL_NAME = "gpt-5-mini"
+MODEL_NAME = "gpt-5.4"
 
 # Mémoire conversationnelle
 conversation_memory = {}
@@ -332,6 +332,7 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=port
     )
+
 
 
 
