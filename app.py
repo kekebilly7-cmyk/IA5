@@ -16,7 +16,10 @@ CORS(app)
 
 # Configuration OpenAI
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
 MODEL_NAME = "gpt-5.4"
+MODEL_FALLBACK_1 = "gpt-4o"
+MODEL_FALLBACK_2 = "gpt-4o-mini"
 
 # Mémoire conversationnelle
 conversation_memory = {}
@@ -67,7 +70,7 @@ def db_query(query, params=(), fetchone=False):
         print(f"Erreur DB: {e}")
         return None
 
-# --- MODIFICATION: récupérer tous les produits avec image, prix et description ---
+
 def get_catalog():
     query = """
     SELECT p.ID, p.post_title, p.post_excerpt as description, 
@@ -122,8 +125,6 @@ def get_order_status(order_id):
         return "Erreur lors du suivi de la commande."
 
 
-# --- CREATION COMMANDE (LIVRAISON MONDIALE) ---
-
 def create_woo_order(customer_email, first_name, last_name, phone, address, city, postcode, country, items):
 
     data = {
@@ -167,6 +168,29 @@ def create_woo_order(customer_email, first_name, last_name, phone, address, city
 
 
 # --- LOGIQUE IA ---
+
+def call_ai(messages, tools=None):
+
+    models = [MODEL_NAME, MODEL_FALLBACK_1, MODEL_FALLBACK_2]
+
+    for model in models:
+
+        try:
+
+            response = client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=tools
+            )
+
+            return response
+
+        except Exception as e:
+
+            print(f"Erreur avec {model} :", e)
+
+    return None
+
 
 def ask_ai(user_id, question):
 
@@ -239,68 +263,54 @@ def ask_ai(user_id, question):
     messages.extend(history)
     messages.append({"role": "user", "content": question})
 
-    try:
+    response = call_ai(messages, tools)
 
-        response = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=messages,
-            tools=tools
-        )
-
-        msg = response.choices[0].message
-
-        if msg.tool_calls:
-
-            messages.append(msg)
-
-            for tool_call in msg.tool_calls:
-
-                args = json.loads(tool_call.function.arguments)
-
-                res_content = create_woo_order(
-                    customer_email=args.get("customer_email"),
-                    first_name=args.get("first_name"),
-                    last_name=args.get("last_name"),
-                    phone=args.get("phone"),
-                    address=args.get("address"),
-                    city=args.get("city"),
-                    postcode=args.get("postcode"),
-                    country=args.get("country"),
-                    items=args.get("items")
-                )
-
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": res_content
-                })
-
-            final = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=messages
-            )
-
-            reply = final.choices[0].message.content
-
-        else:
-
-            reply = msg.content
-
-        history.append({"role": "user", "content": question})
-        history.append({"role": "assistant", "content": reply})
-
-        conversation_memory[user_id] = history[-10:]
-
-        return reply
-
-    except Exception as e:
-
-        print(f"Erreur IA : {e}")
-
+    if response is None:
         return "Le service est momentanément indisponible."
 
+    msg = response.choices[0].message
 
-# --- ROUTE API ---
+    if msg.tool_calls:
+
+        messages.append(msg)
+
+        for tool_call in msg.tool_calls:
+
+            args = json.loads(tool_call.function.arguments)
+
+            res_content = create_woo_order(
+                customer_email=args.get("customer_email"),
+                first_name=args.get("first_name"),
+                last_name=args.get("last_name"),
+                phone=args.get("phone"),
+                address=args.get("address"),
+                city=args.get("city"),
+                postcode=args.get("postcode"),
+                country=args.get("country"),
+                items=args.get("items")
+            )
+
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "content": res_content
+            })
+
+        final = call_ai(messages)
+
+        reply = final.choices[0].message.content
+
+    else:
+
+        reply = msg.content
+
+    history.append({"role": "user", "content": question})
+    history.append({"role": "assistant", "content": reply})
+
+    conversation_memory[user_id] = history[-10:]
+
+    return reply
+
 
 @app.route("/chat", methods=["POST"])
 def chat():
@@ -322,8 +332,6 @@ def chat():
         "reponse": ask_ai(user_id, question)
     })
 
-
-# --- LANCEMENT SERVEUR ---
 
 if __name__ == "__main__":
 
